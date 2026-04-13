@@ -28,9 +28,7 @@ jobs:
       - name: Install dependencies
         uses: py-actions/py-dependency-install@v4.0.0
 
-      - name: Copy .env-example to .env
-        run: cp .env.example .env
-      
+
       - name: Restore lastGenerated.json
         id: restore_last_generated
         uses: actions/cache/restore@v3
@@ -45,6 +43,7 @@ jobs:
         run: python3 generate.py
         env:
           API_KEY: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REPO: ${{ vars.BASE_REPO }}
 
       - name: Check if new source was generated
         id: check_file
@@ -71,19 +70,7 @@ jobs:
         run: |
           mkdir pages
           cp out/apps.json pages/
-          cat > pages/index.html <<EOL
-          <!DOCTYPE html>
-          <html>
-              <head>
-                  <meta charset="UTF-8" />
-                  <meta http-equiv="refresh" content="0;url='sidestore://source?url=https://binyaminyblatt.github.io/audiobookshelf-altstore-repo/apps.json'" />
-                  <title>Redirecting to sidestore://source?url=https://binyaminyblatt.github.io/audiobookshelf-altstore-repo/apps.json</title>
-              </head>
-              <body>
-                  Redirecting to <a href="sidestore://source?url=https://binyaminyblatt.github.io/audiobookshelf-altstore-repo/apps.json">altstore://source?url=https://binyaminyblatt.github.io/audiobookshelf-altstore-repo/apps.json</a>.
-              </body>
-          </html>
-          EOL
+          cp index.html pages/index.html
 
       - name: Deploy to GitHub Pages
         if: steps.check_file.outputs.files_exists == 'true'

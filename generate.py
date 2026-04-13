@@ -8,22 +8,25 @@ from dotenv import load_dotenv
 import requests
 import shutil
 
-api_key = ''
-api_key_check = os.getenv('API_KEY')
+from repovars import source, app
 
-if api_key_check:
-  api_key = api_key_check
-  load_dotenv()
-else:
-  load_dotenv()
-  api_key = os.getenv('API_KEY')
 
-BASE_URL = os.getenv("BASE_URL")
-APP_KEY = os.getenv("APP_KEY")
-BINARY_KEY = os.getenv("BINARY_KEY")
-EXTRACT_TO = os.getenv("EXTRACT_TO")
-OUTPUT_TO = os.getenv("OUTPUT_TO")
-CACHE_TO = os.getenv("CACHE_TO")
+load_dotenv()
+
+api_key = os.getenv("API_KEY")
+if not api_key:
+    raise ValueError("API_KEY is required")
+
+BASE_REPO = os.getenv("BASE_REPO").strip()
+
+if not BASE_REPO:
+    raise ValueError("BASE_REPO is required (format: owner/repo)")
+
+BASE_URL = f'https://api.github.com/repos/{BASE_REPO}'
+
+EXTRACT_TO = os.getenv("EXTRACT_TO", "temp")
+OUTPUT_TO = os.getenv("OUTPUT_TO", "out")
+CACHE_TO = os.getenv("CACHE_TO", "cache")
 
 # Create EXTRACT_TO folder
 if not os.path.exists(EXTRACT_TO):
@@ -38,39 +41,15 @@ if not os.path.exists(CACHE_TO):
   os.makedirs(CACHE_TO)
 
 headers = {
-    'User-Agent': 'Audiobookshelf-Worker-Helper/1.0',
-    'Authorization': f'token {api_key}'  # Replace YOUR_API_KEY with your actual API key
+    'User-Agent': 'AltStore-Repo-Generator/1.0',
+    'Authorization': f'token {api_key}',  # Replace YOUR_API_KEY with your actual API key
+    "Accept": "application/vnd.github+json"
 }
 
 response = requests.get(BASE_URL + '/releases', headers=headers)
 
 # AltStore source construction
-source = {}
-source['name'] = 'Audiobookshelf'
-source['tintColor'] = '#bf9000'
-source['iconURL'] = 'https://raw.githubusercontent.com/advplyr/audiobookshelf-app/master/static/Logo.png'
-source['description'] = 'Audiobookshelf is a self-hosted audiobook server for managing and listening to your audiobooks.'
-source['homepage'] = 'https://audiobookshelf.org'
-source["featuredApps"] = [
-    "com.audiobookshelf.app"
-  ]
-source['apps'] = []
-source['news'] = []
 
-app = {
-  "name": "Audiobookshelf",
-  "bundleIdentifier": "com.audiobookshelf.app",
-  "developerName": "Audiobookshelf Team",
-  "localizedDescription": "Audiobookshelf is a self-hosted audiobook server for managing and listening to your audiobooks.",
-  "minimumOSVersion": "13.0",
-
-  "iconURL": "https://raw.githubusercontent.com/advplyr/audiobookshelf-app/master/static/Logo.png",
-  "tintColor": "#bf9000",
-  "screenshots": [
-    "https://raw.githubusercontent.com/advplyr/audiobookshelf-app/master/screenshots/DeviceDemoScreens.png"
-  ],
-}
-app['versions'] = []
 
 # Check if request was successful
 if response.status_code == 200:
@@ -94,21 +73,27 @@ if response.status_code == 200:
         
         # Iterate over assets
         for asset in assets:
-            if asset['name'] == APP_KEY:
+            asset_name = asset['name']
+            if asset_name.lower().endswith('.ipa'):
 
               # Download the file at BASE_URL/tdAPP_KEY, then extract the Info.plist and binary from the zip in the Payload folder
               downloadURL = asset['browser_download_url']
               response = requests.get(downloadURL)
               
-              with open(f'{EXTRACT_TO}/{APP_KEY}', 'wb') as f:
+              with open(f'{EXTRACT_TO}/{asset_name}', 'wb') as f:
                 f.write(response.content)
-              
-              with zipfile.ZipFile(f'{EXTRACT_TO}/{APP_KEY}', 'r') as zip_ref:
-                zip_ref.extract(f'Payload/{BINARY_KEY}.app/Info.plist', path=EXTRACT_TO)
-                zip_ref.extract(f'Payload/{BINARY_KEY}.app/{BINARY_KEY}', path=EXTRACT_TO)
+              app_folder = None
+              with zipfile.ZipFile(f'{EXTRACT_TO}/{asset_name}', 'r') as zip_ref:
+                for name in zip_ref.namelist():
+                  if name.startswith("Payload/") and name.endswith(".app/"):
+                      app_folder = name.split('/')[1].split('.app')[0]
+                      print(f'Found app folder: {app_folder}')
+                      break
+                zip_ref.extract(f'Payload/{app_folder}.app/Info.plist', path=EXTRACT_TO)
+                zip_ref.extract(f'Payload/{app_folder}.app/{app_folder}', path=EXTRACT_TO)
 
               # Declare the plist to get useful info like CFBundleShortVersionString and CFBundleVersion
-              plist = plistlib.load(open(f'{EXTRACT_TO}/Payload/{BINARY_KEY}.app/Info.plist', 'rb'))
+              plist = plistlib.load(open(f'{EXTRACT_TO}/Payload/{app_folder}.app/Info.plist', 'rb'))
 
               doesNotExist = True
               # Check if a version with the same version and buildVersion already exists, if so, break the release loop
@@ -123,11 +108,18 @@ if response.status_code == 200:
                   ##
                   # Adding appPermissions including entitlements and privacy
                   ##
+                  if app["bundleIdentifier"] is None:
+                    app["bundleIdentifier"] = plist['CFBundleIdentifier']
+                    source['featuredApps'].append(plist['CFBundleIdentifier'])
+                  min_ios = plist.get('MinimumOSVersion')
+
+                  if app["minimumOSVersion"] is None and min_ios:
+                      app["minimumOSVersion"] = min_ios
 
                   app['appPermissions'] = {}
                   app['appPermissions']['entitlements'] = []
 
-                  for entitlement in getEntitlements(f'{EXTRACT_TO}/Payload/{BINARY_KEY}.app/{BINARY_KEY}'):
+                  for entitlement in getEntitlements(f'{EXTRACT_TO}/Payload/{app_folder}.app/{app_folder}'):
                     # Add entitlement to the entitlements array
                     app['appPermissions']['entitlements'].append(entitlement)
 
@@ -140,7 +132,7 @@ if response.status_code == 200:
                         app['appPermissions']['privacy'][key] = value
 
                 # Get the number of bytes of the downloaded file at f'{EXTRACT_TO}/{APP_KEY}'
-                appSize = os.path.getsize(f'{EXTRACT_TO}/{APP_KEY}')
+                appSize = os.path.getsize(f'{EXTRACT_TO}/{asset_name}')
 
                 ##
                 # Creating and adding the version
@@ -173,19 +165,21 @@ if response.status_code == 200:
                 app['versions'].append(version)
                 news_identifier = f"release-{plist['CFBundleShortVersionString']}"
                 news_entry = {
-                    "title": f"{plist['CFBundleShortVersionString']} - Audiobookshelf",
+                    "title": f"{plist['CFBundleShortVersionString']} - {source['name']}",
                     "identifier": news_identifier,
-                    "caption": f"Update of Audiobookshelf just got released!",
+                    "caption": f"Update of {source['name']} just got released!",
                     "date": lastModified,
                     "tintColor": "#000000",
-                    "imageURL": "https://raw.githubusercontent.com/advplyr/audiobookshelf-app/master/static/Logo.png",
+                    "imageURL": source['iconURL'],
                     "notify": True,
-                    "url": f"https://github.com/advplyr/audiobookshelf-app/releases/tag/{tag_name}"
+                    "url": f"https://github.com/{BASE_REPO}/releases/tag/{tag_name}"
                 }
                 source['news'].append(news_entry)
                 # Add the app to the source
                 break
-
+else:
+    print('Failed to fetch releases from GitHub API. Status code:', response.status_code)
+    exit()
 # Add app to the source
 source['apps'].append(app)
 
