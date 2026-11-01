@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Absorb AltStore Repo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+    function getAppsUrl() {
+        let base = window.location.origin + window.location.pathname;
+
+        // Remove index.html if present
+        base = base.replace(/index\.html$/, '');
+
+        // Ensure trailing slash
+        if (!base.endsWith('/')) base += '/';
+
+        return base + 'apps.json';
+    }
+
+    const appsUrl = getAppsUrl();
+    </script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .card {
+      background: #1e293b;
+      padding: 2rem;
+      border-radius: 20px;
+      text-align: center;
+      max-width: 400px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    img {
+      width: 100px;
+      border-radius: 20px;
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      margin: 0.5rem 0;
+    }
+
+    p {
+      opacity: 0.8;
+      font-size: 0.95rem;
+    }
+
+    .button {
+      display: inline-block;
+      margin-top: 1.5rem;
+      padding: 12px 20px;
+      background: #4db6ac;
+      color: black;
+      text-decoration: none;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+
+    .button:hover {
+      opacity: 0.9;
+    }
+
+    .small {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      opacity: 0.6;
+    }
+    .button {
+        display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <img id="appicon" />
+
+    <h1 id="appname"></h1>
+    <p id="appdescription"></p>
+
+    <a id="sidestoreinstallBtn" class="button">
+       ➕ Add to SideStore
+    </a>
+
+    <a id="altstoreinstallBtn" class="button">
+       ➕ Add to Altstore
+    </a>
+    <div class="small">
+      Or copy this URL into AltStore:<br>
+        <code id="appsUrlDisplay"></code>
+    </div>
+    <div id="version" class="small"></div>
+  </div>
+</body>
+<script>
+const sideBtn = document.getElementById("sidestoreinstallBtn");
+const altBtn = document.getElementById("altstoreinstallBtn");
+
+// Set install links
+sideBtn.href = "sidestore://source?url=" + encodeURIComponent(appsUrl);
+altBtn.href = "altstore://source?url=" + encodeURIComponent(appsUrl);
+// Show buttons
+sideBtn.style.display = "inline-block";
+altBtn.style.display = "inline-block";
+
+// Show URL
+document.getElementById("appsUrlDisplay").innerText = appsUrl;
+
+// Load apps.json
+fetch(appsUrl)
+  .then(res => res.json())
+  .then(data => {
+    const app = data.apps[0];
+
+    // Update UI
+    document.getElementById("appname").innerText = app.name;
+    document.getElementById("appdescription").innerText = app.localizedDescription;
+    document.getElementById("appicon").src = app.iconURL;
+
+    // ✅ Latest version (first item = newest)
+    if (app.versions && app.versions.length > 0) {
+      const latest = app.versions[0];
+
+      document.getElementById("version").innerText =
+        `Latest version: ${latest.version} (${latest.buildVersion})`;
+    }
+  })
+  .catch(err => {
+    console.error("Failed to load apps.json", err);
+
+    document.getElementById("version").innerText =
+      "⚠️ Failed to load version info";
+  });
+</script>
+</html>
